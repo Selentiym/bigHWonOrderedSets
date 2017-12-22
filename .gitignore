@@ -1,0 +1,9 @@
+#ignore python binaries
+venv/
+#ignore tex compilation files
+*.aux
+*.log
+#ignore temporary file with results
+results
+#ignore IDE folder
+.idea/

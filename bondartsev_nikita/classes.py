@@ -47,6 +47,12 @@ class Object(AObject):
         return self.label
 
 
+class ExtendedParamListObject(Object):
+    def __init__(self, params: List['AParam'], label='noLabel'):
+        self.params = ExtendedParamList(params)
+        self.label = label
+
+
 class AParam(ABC):
 
     @classmethod
@@ -108,7 +114,11 @@ class ParamList(AParam):
         rez = []
         for ind, val in enumerate(self.params):
             rez.append(second.params[ind].intersect(val))
-        return ParamList(rez)
+        return self.newInstance(rez)
+
+    def newInstance(self,params):
+        k = self.__class__
+        return k(params)
 
     def weight(self) -> float:
         rez = 0
@@ -126,6 +136,21 @@ class ParamList(AParam):
 
     def _doIntersect(self, second: 'AParam'):
         pass
+
+
+class ExtendedParamList(ParamList):
+    def includes(self, toTestParam: AParam):
+        # print()
+        if not isinstance(toTestParam, ParamList):
+            raise TypeError("A scalar param given to be compared with a vector one")
+        missedCount = 0
+        for ind, param in enumerate(self.params):
+            if not param.includes(toTestParam.params[ind]):
+                missedCount += 1
+                # print(ind,end=',')
+            if missedCount > 1:
+                return False
+        return True
 
 
 class ADataHandler(ABC):
@@ -149,8 +174,9 @@ class ADataHandler(ABC):
 
 class CsvTupleDataHandler(ADataHandler):
 
-    def __init__(self, dataFilename, config: tuple):
+    def __init__(self, dataFilename, config: tuple, ObjectClass = Object):
         self.config = config
+        self._objClass = ObjectClass
         with open(dataFilename, 'r') as f:
             reader = csv.reader(f)
             self._rawDataList = list(reader)
@@ -170,7 +196,7 @@ class CsvTupleDataHandler(ADataHandler):
         for ind, value in enumerate(dataLine):
             className = getattr(paramClasses, self.config[ind])
             params.append(className.instantiate(value))
-        return Object(params)
+        return self._objClass(params)
 
     def getPositiveContext(self) -> Context:
         return self._posCont
@@ -232,6 +258,9 @@ class WeightedGeneratorClassifier(ALinearClassifier):
                 val -= neg.dash(paramToTest).__len__() * self.getWeight(paramToTest) / sn
         return val
 
+    def getWeight(self, params: 'AParamList'):
+        return params.weight()
+
 
 class EdgedGeneratorClassifier(ALinearClassifier):
 
@@ -247,18 +276,24 @@ class EdgedGeneratorClassifier(ALinearClassifier):
         sn = neg.getObjects().__len__()
         for obj in pos.getObjects():
             paramToTest = obj.dash().intersect(testObj.dash())
-            support = pos.dash(paramToTest).__len__() / sp
+            support = pos.dash(paramToTest).__len__()
+            # if support > 2:
+            #     print(support)
+            support = support / sp
             if support > self._edge:
-                val += self.getWeight(paramToTest)
+                val += 1 / sp
         for obj in neg.getObjects():
             paramToTest = obj.dash().intersect(testObj.dash())
             support = neg.dash(paramToTest).__len__() / sn
             if support > self._edge:
-                val -= self.getWeight(paramToTest)
+                val -= 1 / sn
         return val
 
     def getWeight(self, param: AParam) -> float:
-        return 1.0
+        return param.weight()
+
+    def classify(self, obj: AObject):
+        return self.calculate(obj) >= 0
 
 
 class GeneratorClassifier(WeightedGeneratorClassifier):
@@ -279,22 +314,21 @@ class FullClassifier(ALinearClassifier):
             paramToTest = obj.dash().intersect(testObj.dash())
             pd = pos.dash(paramToTest)
             val += (pos.dash(paramToTest).__len__()/sp - neg.dash(paramToTest).__len__()/sn)
-        print(val)
         return val
 
 
-class DetailedObjectsClassifier(ALinearClassifier):
-
-    def calculate(self, obj: AObject):
-        pos = self._data.getPositiveContext()
-        neg = self._data.getNegativeContext()
-        val = 0.0
-        sp = pos.getObjects().__len__()
-        sn = neg.getObjects().__len__()
-        for obj in pos.getObjects().union(neg.getObjects()):
-            paramToTest = obj.dash().intersect(testObj.dash())
-            val += (pos.dash(paramToTest).__len__() / sp - neg.dash(paramToTest).__len__() / sn) * paramToTest.weight()
-        return val
+# class DetailedObjectsClassifier(ALinearClassifier):
+#
+#     def calculate(self, obj: AObject):
+#         pos = self._data.getPositiveContext()
+#         neg = self._data.getNegativeContext()
+#         val = 0.0
+#         sp = pos.getObjects().__len__()
+#         sn = neg.getObjects().__len__()
+#         for obj in pos.getObjects().union(neg.getObjects()):
+#             paramToTest = obj.dash().intersect(testObj.dash())
+#             val += (pos.dash(paramToTest).__len__() / sp - neg.dash(paramToTest).__len__() / sn) * paramToTest.weight()
+#         return val
 
 
 class QuantileClassifier(AClassifier):
